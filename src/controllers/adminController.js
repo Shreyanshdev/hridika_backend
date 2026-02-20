@@ -12,7 +12,6 @@ exports.getAllUsers = async (req, res) => {
 exports.getOrdersAdmin = async (req, res) => {
     try {
         const [orders] = await db.query("SELECT id, address, payment_method, status, created_at FROM orders");
-        // Python code converts dates to string manually, but JSON does it automatically mostly.
         return res.status(200).json(orders);
     } catch (e) {
         return res.status(500).json({ error: e.message });

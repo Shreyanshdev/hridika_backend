@@ -66,7 +66,7 @@ exports.getCart = async (req, res) => {
             return {
                 product_id: item.product_id,
                 name: item.name,
-                images: item.images, // JSON string or what DB has
+                images: (() => { try { const parsed = JSON.parse(item.images); return Array.isArray(parsed) ? parsed : [item.images]; } catch { return item.images ? [item.images] : []; } })(),
                 quantity: item.cart_quantity,
                 price: parseFloat(unitPrice.toFixed(2)),
                 total_price: parseFloat((unitPrice * item.cart_quantity).toFixed(2))

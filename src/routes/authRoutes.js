@@ -21,6 +21,8 @@ router.post('/google-verify', authController.verifyGoogleToken);
 // Protected Routes
 router.post('/refresh', verifyRefreshToken, authController.refresh);
 router.get('/profile', verifyToken, authController.getProfile);
+router.get('/profile/full', verifyToken, authController.getFullProfile);
+router.put('/update-profile', verifyToken, authController.updateProfile);
 router.get('/protected', verifyToken, (req, res) => {
     // Replicating @app.route('/protected') logic
     // current_user = get_jwt_identity() -> req.user_id

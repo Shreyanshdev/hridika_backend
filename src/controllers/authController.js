@@ -62,6 +62,7 @@ exports.register = async (req, res) => {
                 user_id: user_id,
                 username: username,
                 email: email,
+                phone: phone || null,
                 role: "user"
             }
         });
@@ -95,8 +96,10 @@ exports.login = async (req, res) => {
                 access_token: accessToken,
                 refresh_token: refreshToken,
                 user: {
-                    id: user.username, // Python: returns username as 'id' in login response for some reason
+                    id: user.username,
+                    username: user.username,
                     email: user.email,
+                    phone: user.Phone || null,
                     role: user.role
                 }
             });
@@ -280,12 +283,15 @@ exports.getProfile = async (req, res) => {
 };
 
 exports.requestEmailOtp = async (req, res) => {
-    const { email } = req.body;
+    const { email, context } = req.body;
     if (!email) return res.status(400).json({ error: "Email required" });
 
-    const existingUser = await db.query("SELECT * FROM users WHERE email=?", [email]);
-    if (existingUser[0].length > 0) {
-        return res.status(409).json({ message: "Email already registered" });
+    // Skip "already registered" check when context is 'update' (user is updating their own email)
+    if (context !== 'update') {
+        const existingUser = await db.query("SELECT * FROM users WHERE email=?", [email]);
+        if (existingUser[0].length > 0) {
+            return res.status(409).json({ message: "Email already registered" });
+        }
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000);
@@ -313,6 +319,84 @@ exports.verifyEmailOtp = async (req, res) => {
 
     delete emailOtpStore[email];
     return res.json({ message: "Email verified successfully" });
+};
+
+exports.getFullProfile = async (req, res) => {
+    try {
+        const userId = req.user_id;
+        const [users] = await db.query("SELECT user_id, username, email, Phone, role, created_at FROM users WHERE user_id=?", [userId]);
+        if (users.length === 0) return res.status(404).json({ error: "User not found" });
+        const user = users[0];
+        console.log("DB User from getFullProfile:", user);
+        return res.status(200).json({
+            user_id: user.user_id,
+            username: user.username,
+            email: user.email,
+            phone: user.Phone,
+            role: user.role,
+            created_at: user.created_at
+        });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ error: e.message });
+    }
+};
+
+exports.updateProfile = async (req, res) => {
+    try {
+        const userId = req.user_id;
+        const { username, email, phone } = req.body;
+
+        if (!username && !email && !phone) {
+            return res.status(400).json({ error: "At least one field is required" });
+        }
+
+        // Check if email is already taken by another user
+        if (email) {
+            const [existing] = await db.query("SELECT user_id FROM users WHERE email=? AND user_id != ?", [email, userId]);
+            if (existing.length > 0) {
+                return res.status(409).json({ error: "Email already in use by another account" });
+            }
+        }
+
+        // Check if phone is already taken by another user
+        if (phone) {
+            const [existing] = await db.query("SELECT user_id FROM users WHERE Phone=? AND user_id != ?", [phone, userId]);
+            if (existing.length > 0) {
+                return res.status(409).json({ error: "Phone number already in use by another account" });
+            }
+        }
+
+        // Build dynamic update query
+        const fields = [];
+        const values = [];
+        if (username) { fields.push("username=?"); values.push(username); }
+        if (email) { fields.push("email=?"); values.push(email); }
+        if (phone) { fields.push("Phone=?"); values.push(phone); }
+
+        values.push(userId);
+
+        await db.query(`UPDATE users SET ${fields.join(", ")} WHERE user_id=?`, values);
+
+        // Fetch updated user
+        const [updated] = await db.query("SELECT user_id, username, email, Phone, role, created_at FROM users WHERE user_id=?", [userId]);
+        const user = updated[0];
+
+        return res.status(200).json({
+            message: "Profile updated successfully",
+            user: {
+                user_id: user.user_id,
+                username: user.username,
+                email: user.email,
+                phone: user.Phone,
+                role: user.role,
+                created_at: user.created_at
+            }
+        });
+    } catch (e) {
+        console.error(e);
+        return res.status(500).json({ error: e.message });
+    }
 };
 
 exports.googleLogin = async (req, res) => {
@@ -353,7 +437,9 @@ exports.googleLogin = async (req, res) => {
             refresh_token: refreshToken,
             user: {
                 id: user.username,
+                username: user.username,
                 email: user.email,
+                phone: user.Phone || null,
                 role: user.role
             }
         });
@@ -383,3 +469,4 @@ exports.verifyGoogleToken = async (req, res) => {
         return res.status(400).json({ error: "Invalid Google Token" });
     }
 };
+

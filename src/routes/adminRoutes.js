@@ -11,5 +11,6 @@ router.put('/api/admin/orders/:order_id', verifyToken, adminController.updateOrd
 router.get('/api/admin/metal-rates', verifyToken, adminController.getMetalRates);
 router.post('/api/admin/metal-rates', verifyToken, adminController.updateMetalRate);
 router.get('/api/bespoke-requests', verifyToken, adminController.getBespokeRequests);
+router.delete('/api/bespoke-requests/:id', verifyToken, adminController.deleteBespokeRequest);
 
 module.exports = router;

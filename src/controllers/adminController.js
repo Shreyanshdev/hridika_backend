@@ -118,3 +118,16 @@ exports.getBespokeRequests = async (req, res) => {
         return res.status(500).json({ error: e.message });
     }
 };
+
+exports.deleteBespokeRequest = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [result] = await db.query("DELETE FROM bespoke_requests WHERE id=?", [id]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ msg: "Bespoke request not found" });
+        }
+        return res.status(200).json({ msg: "Bespoke request deleted successfully" });
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+};

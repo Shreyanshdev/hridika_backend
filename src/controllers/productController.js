@@ -15,20 +15,42 @@ const uploadToCloudinary = (fileBuffer, folder = 'hridika/products') => {
     });
 };
 
-// Helper to calculate price
+// Helper to calculate price — must match frontend formula exactly
 const calculatePrice = (product, metalRate) => {
-    // formula: (weight * (base_rate + premium)) + making_charge
-    // metal_name in product should match metal_type in metal_rates (case insensitive)
-
-    if (!metalRate) return 0; // Or handle error
+    if (!metalRate || !metalRate.base_rate) return 0;
 
     const weight = parseFloat(product.weight) || 0;
     const baseRate = parseFloat(metalRate.base_rate) || 0;
     const premium = parseFloat(metalRate.premium) || 0;
-    const makingCharge = parseFloat(product.making_charge) || 0;
+    const makingChargePercent = parseFloat(product.making_charge) || 0;
+    const otherCharges = parseFloat(product.other_charges) || 0;
+    const gstPercent = 3; // Fixed GST rate matching frontend default
 
-    const finalPrice = (weight * (baseRate + premium)) + makingCharge;
-    return parseFloat(finalPrice.toFixed(2));
+    // Step 1: price per gram (same logic as frontend)
+    const metalName = (product.metal_name || '').toLowerCase();
+    let pricePerGram = 0;
+    if (metalName === 'gold') {
+        pricePerGram = baseRate + premium / 10;
+    } else if (metalName === 'silver') {
+        pricePerGram = baseRate + premium / 1000;
+    } else {
+        pricePerGram = baseRate + premium;
+    }
+
+    // Step 2: base total
+    const baseFinal = pricePerGram * weight;
+
+    // Step 3: making charge as percentage
+    const makingAmount = (baseFinal * makingChargePercent) / 100;
+    const totalBeforeGst = baseFinal + makingAmount;
+
+    // Step 4: apply GST
+    const finalWithGst = (totalBeforeGst * (gstPercent + 100)) / 100;
+
+    // Step 5: add other charges
+    const grandTotal = finalWithGst + otherCharges;
+
+    return parseFloat(grandTotal.toFixed(2));
 };
 
 exports.createProduct = async (req, res) => {
@@ -43,6 +65,7 @@ exports.createProduct = async (req, res) => {
 
         let weight = parseFloat(data.weight) || 0.0;
         let making_charge = parseFloat(data.making_charge) || 0.0;
+        let other_charges = parseFloat(data.other_charges) || 0.0;
 
         // Handle image uploads: multer files OR legacy base64/URL strings in body
         let imageUrls = [];
@@ -60,8 +83,8 @@ exports.createProduct = async (req, res) => {
 
         const query = `
             INSERT INTO products 
-            (name, category, description, stock, images, quantity, metal_name, weight, making_charge)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (name, category, description, stock, images, quantity, metal_name, weight, making_charge, other_charges)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
         await db.query(query, [
@@ -73,7 +96,8 @@ exports.createProduct = async (req, res) => {
             quantity,
             data.metal_name || 'Gold',
             weight,
-            making_charge
+            making_charge,
+            other_charges
         ]);
 
         return res.status(201).json({ msg: "Product created successfully" });
@@ -89,10 +113,10 @@ exports.getProductsDash = async (req, res) => {
         const query = `
             SELECT 
             p.id, p.name, p.category, p.description, p.stock, p.images,
-            p.quantity, p.metal_name, p.weight, p.making_charge,
+            p.quantity, p.metal_name, p.weight, p.making_charge, p.other_charges,
             m.base_rate, m.premium
             FROM products p
-            JOIN metal_rates m 
+            LEFT JOIN metal_rates m 
             ON p.metal_name COLLATE utf8mb4_unicode_ci = m.metal_type COLLATE utf8mb4_unicode_ci
         `;
 
@@ -120,6 +144,7 @@ exports.getProductsDash = async (req, res) => {
                 metal_name: p.metal_name,
                 weight: p.weight,
                 making_charge: p.making_charge,
+                other_charges: p.other_charges || 0,
                 price: finalPrice
             };
         });
@@ -137,10 +162,10 @@ exports.getProducts = async (req, res) => {
         const query = `
             SELECT 
             p.id, p.name, p.category, p.description, p.stock, p.images,
-            p.quantity, p.metal_name, p.weight, p.making_charge,
+            p.quantity, p.metal_name, p.weight, p.making_charge, p.other_charges,
             m.base_rate, m.premium
             FROM products p
-            JOIN metal_rates m 
+            LEFT JOIN metal_rates m 
             ON p.metal_name COLLATE utf8mb4_unicode_ci = m.metal_type COLLATE utf8mb4_unicode_ci
         `; // MySQL is generally case-insensitive but explicit match is safer if collation varies. Python used explicit regex/lower.
 
@@ -168,6 +193,7 @@ exports.getProducts = async (req, res) => {
                 metal_name: p.metal_name,
                 weight: p.weight,
                 making_charge: p.making_charge,
+                other_charges: p.other_charges || 0,
                 price: finalPrice
             };
         });
@@ -187,7 +213,7 @@ exports.getProduct = async (req, res) => {
             SELECT 
             p.*, m.base_rate, m.premium
             FROM products p
-            JOIN metal_rates m 
+            LEFT JOIN metal_rates m 
             ON p.metal_name COLLATE utf8mb4_unicode_ci = m.metal_type COLLATE utf8mb4_unicode_ci
             WHERE p.id = ?
         `;
@@ -270,6 +296,11 @@ exports.updateProduct = async (req, res) => {
             making_charge = parseFloat(data.making_charge) || 0.0;
         }
 
+        let other_charges = product.other_charges || 0;
+        if (data.other_charges !== undefined) {
+            other_charges = parseFloat(data.other_charges) || 0.0;
+        }
+
         // Handle image uploads: multer files OR legacy strings in body
         let images_json = product.images;
         if (req.files && req.files.length > 0) {
@@ -296,7 +327,7 @@ exports.updateProduct = async (req, res) => {
 
         const updateQuery = `
             UPDATE products SET
-            name=?, category=?, description=?, stock=?, quantity=?, metal_name=?, images=?, weight=?, making_charge=?
+            name=?, category=?, description=?, stock=?, quantity=?, metal_name=?, images=?, weight=?, making_charge=?, other_charges=?
             WHERE id=?
         `;
 
@@ -310,6 +341,7 @@ exports.updateProduct = async (req, res) => {
             images_json,
             weight,
             making_charge,
+            other_charges,
             id
         ]);
 
@@ -340,7 +372,7 @@ exports.getProductsByCategory = async (req, res) => {
              SELECT 
             p.*, m.base_rate, m.premium
             FROM products p
-            JOIN metal_rates m 
+            LEFT JOIN metal_rates m 
             ON p.metal_name COLLATE utf8mb4_unicode_ci = m.metal_type COLLATE utf8mb4_unicode_ci
             WHERE LOWER(p.category) = LOWER(?)
         `;

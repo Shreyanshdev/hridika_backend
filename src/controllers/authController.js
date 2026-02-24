@@ -166,7 +166,7 @@ exports.requestPhoneOtp = async (req, res) => {
 
 exports.verifyPhoneOtp = async (req, res) => {
     try {
-        const { otp, sessionToken } = req.body;
+        const { otp, sessionToken, context } = req.body;
         if (!otp || !sessionToken) return res.status(400).json({ msg: "missing_data" });
 
         const data = phoneOtpStore[sessionToken];
@@ -190,7 +190,30 @@ exports.verifyPhoneOtp = async (req, res) => {
         const phone = data.phone;
         delete phoneOtpStore[sessionToken];
 
-        // Phone verified via Message Central — return success
+        // If context is "login", look up user by phone and return tokens
+        if (context === 'login') {
+            const [users] = await db.query("SELECT * FROM users WHERE Phone=?", [phone]);
+            if (users.length > 0) {
+                const user = users[0];
+                const { accessToken, refreshToken } = generateTokens(user.user_id);
+                return res.status(200).json({
+                    message: "Login successful",
+                    access_token: accessToken,
+                    refresh_token: refreshToken,
+                    user: {
+                        id: user.username,
+                        username: user.username,
+                        email: user.email,
+                        phone: user.Phone || null,
+                        role: user.role
+                    }
+                });
+            } else {
+                return res.status(404).json({ msg: "user_not_found", verified: true });
+            }
+        }
+
+        // Default: just verification (for registration / profile update)
         return res.status(200).json({
             message: "Phone verification successful",
             verified: true

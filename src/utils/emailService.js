@@ -1,28 +1,40 @@
-const nodemailer = require('nodemailer');
+const axios = require('axios');
 const config = require('../config/config');
 
-const transporter = nodemailer.createTransport({
-    host: config.email.host,
-    port: config.email.port,
-    secure: false, // true for 465, false for other ports
-    auth: {
-        user: config.email.user,
-        pass: config.email.pass,
-    },
-});
+const RESEND_API_URL = 'https://api.resend.com/emails';
+const RESEND_API_KEY = process.env.RESEND_API_KEY || config.resend?.apiKey;
+const FROM_EMAIL =
+    process.env.RESEND_FROM_EMAIL ||
+    config.resend?.fromEmail ||
+    config.email?.user;
 
 const sendEmail = async (to, subject, text, html) => {
     try {
-        const info = await transporter.sendMail({
-            from: config.email.user,
-            to: to,
-            subject: subject,
-            text: text,
-            html: html,
+        if (!RESEND_API_KEY) {
+            throw new Error('RESEND_API_KEY is not configured');
+        }
+
+        const payload = {
+            from: FROM_EMAIL,
+            to: Array.isArray(to) ? to : [to],
+            subject,
+            text,
+            html,
+        };
+
+        await axios.post(RESEND_API_URL, payload, {
+            headers: {
+                Authorization: `Bearer ${RESEND_API_KEY}`,
+                'Content-Type': 'application/json',
+            },
         });
+
         return true;
     } catch (error) {
-        console.error('Error sending email:', error);
+        console.error(
+            'Error sending email via Resend:',
+            error.response?.data || error.message
+        );
         return false;
     }
 };

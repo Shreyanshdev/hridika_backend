@@ -49,7 +49,7 @@ exports.createOrder = async (req, res) => {
 
         // Fetch cart items
         const query = `
-            SELECT c.product_id, c.quantity, p.weight, p.making_charge, p.other_charges, p.metal_name, m.base_rate, m.premium
+            SELECT c.product_id, c.quantity, p.name, p.stock, p.weight, p.making_charge, p.other_charges, p.metal_name, m.base_rate, m.premium
             FROM cart c
             JOIN products p ON c.product_id = p.id
             LEFT JOIN metal_rates m 
@@ -61,6 +61,19 @@ exports.createOrder = async (req, res) => {
         if (cartItems.length === 0) {
             await connection.rollback();
             return res.status(400).json({ msg: "Cart is empty" });
+        }
+
+        // Validate stock for all items
+        for (const item of cartItems) {
+            const stock = item.stock || 0;
+            if (stock <= 0) {
+                await connection.rollback();
+                return res.status(400).json({ msg: `"${item.name}" is out of stock. Please remove it from your cart to proceed.` });
+            }
+            if (item.quantity > stock) {
+                await connection.rollback();
+                return res.status(400).json({ msg: `Only ${stock} pieces of "${item.name}" available, but you have ${item.quantity} in cart.` });
+            }
         }
 
         // Calculate total

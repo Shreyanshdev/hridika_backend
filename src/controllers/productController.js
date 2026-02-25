@@ -124,6 +124,10 @@ exports.getProductsDash = async (req, res) => {
 
         const result = rows.map(p => {
             const finalPrice = calculatePrice(p, { base_rate: p.base_rate, premium: p.premium });
+            const _mn = (p.metal_name || '').toLowerCase();
+            const _br = parseFloat(p.base_rate) || 0;
+            const _pr = parseFloat(p.premium) || 0;
+            const ppg = _mn === 'gold' ? _br + _pr / 10 : _mn === 'silver' ? _br + _pr / 1000 : _br + _pr;
 
             let images = [];
             try {
@@ -145,7 +149,8 @@ exports.getProductsDash = async (req, res) => {
                 weight: p.weight,
                 making_charge: p.making_charge,
                 other_charges: p.other_charges || 0,
-                price: finalPrice
+                price: finalPrice,
+                price_per_gram: parseFloat(ppg.toFixed(2))
             };
         });
 
@@ -173,6 +178,10 @@ exports.getProducts = async (req, res) => {
 
         const result = rows.map(p => {
             const finalPrice = calculatePrice(p, { base_rate: p.base_rate, premium: p.premium });
+            const mn = (p.metal_name || '').toLowerCase();
+            const br = parseFloat(p.base_rate) || 0;
+            const pr = parseFloat(p.premium) || 0;
+            const ppg = mn === 'gold' ? br + pr / 10 : mn === 'silver' ? br + pr / 1000 : br + pr;
 
             let images = [];
             try {
@@ -194,7 +203,8 @@ exports.getProducts = async (req, res) => {
                 weight: p.weight,
                 making_charge: p.making_charge,
                 other_charges: p.other_charges || 0,
-                price: finalPrice
+                price: finalPrice,
+                price_per_gram: parseFloat(ppg.toFixed(2))
             };
         });
 

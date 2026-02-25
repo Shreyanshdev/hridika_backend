@@ -8,14 +8,30 @@ exports.addToCart = async (req, res) => {
         // Enforce minimum quantity of 10
         const qty = Math.max(10, parseInt(quantity) || 10);
 
+        // Check product stock
+        const [products] = await db.query("SELECT stock FROM products WHERE id=?", [product_id]);
+        if (products.length === 0) {
+            return res.status(404).json({ msg: "Product not found" });
+        }
+        const availableStock = products[0].stock || 0;
+        if (availableStock <= 0) {
+            return res.status(400).json({ msg: "This product is currently out of stock" });
+        }
+
         // Check if item exists in cart
         const [existing] = await db.query(
             "SELECT quantity FROM cart WHERE user_id=? AND product_id=?",
             [userId, product_id]
         );
 
+        const currentCartQty = existing.length > 0 ? existing[0].quantity : 0;
+        const totalAfterAdd = currentCartQty + qty;
+
+        if (totalAfterAdd > availableStock) {
+            return res.status(400).json({ msg: `Only ${availableStock} pieces available. You already have ${currentCartQty} in cart.` });
+        }
+
         if (existing.length > 0) {
-            // Add requested quantity to existing
             await db.query(
                 "UPDATE cart SET quantity=quantity+? WHERE user_id=? AND product_id=?",
                 [qty, userId, product_id]
@@ -48,6 +64,7 @@ exports.getCart = async (req, res) => {
                 p.making_charge,
                 p.other_charges,
                 p.metal_name,
+                p.stock,
                 m.base_rate,
                 m.premium
             FROM cart c
@@ -96,7 +113,8 @@ exports.getCart = async (req, res) => {
                 price_per_gram: parseFloat(pricePerGram.toFixed(2)),
                 making_charge_percent: makingChargePercent,
                 gst_percent: gstPercent,
-                other_charges: otherCharges
+                other_charges: otherCharges,
+                stock: item.stock || 0
             };
         });
 

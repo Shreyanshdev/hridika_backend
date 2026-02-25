@@ -2,7 +2,7 @@ const db = require('../config/db');
 
 exports.getAllUsers = async (req, res) => {
     try {
-        const [users] = await db.query("SELECT user_id, username, email, Phone FROM users");
+        const [users] = await db.query("SELECT user_id, username, email, Phone, created_at FROM users");
         return res.status(200).json(users);
     } catch (e) {
         return res.status(500).json({ error: e.message });
@@ -11,7 +11,7 @@ exports.getAllUsers = async (req, res) => {
 
 exports.getOrdersAdmin = async (req, res) => {
     try {
-        const [orders] = await db.query("SELECT id, address, payment_method, status, created_at FROM orders");
+        const [orders] = await db.query("SELECT id, address, payment_method, status, created_at, total_amount FROM orders ORDER BY created_at DESC");
         return res.status(200).json(orders);
     } catch (e) {
         return res.status(500).json({ error: e.message });
@@ -32,7 +32,8 @@ exports.getAdminOrderDetails = async (req, res) => {
                 o.razorpay_payment_id,
                 o.created_at,
                 u.username AS customer_name,
-                u.email AS customer_email
+                u.email AS customer_email,
+                u.Phone AS customer_phone
             FROM orders o
             LEFT JOIN users u ON o.user_id = u.user_id
             WHERE o.id = ?
@@ -47,6 +48,7 @@ exports.getAdminOrderDetails = async (req, res) => {
         const [items] = await db.query(`
             SELECT
                 p.name,
+                p.images,
                 oi.quantity,
                 oi.price_at_purchase AS price
             FROM order_items oi

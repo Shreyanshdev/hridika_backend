@@ -227,6 +227,15 @@ exports.getProduct = async (req, res) => {
 
         const finalPrice = calculatePrice(p, { base_rate: p.base_rate, premium: p.premium });
 
+        // Calculate price_per_gram for frontend breakdown
+        const metalName = (p.metal_name || '').toLowerCase();
+        const baseRate = parseFloat(p.base_rate) || 0;
+        const premium = parseFloat(p.premium) || 0;
+        let pricePerGram = 0;
+        if (metalName === 'gold') pricePerGram = baseRate + premium / 10;
+        else if (metalName === 'silver') pricePerGram = baseRate + premium / 1000;
+        else pricePerGram = baseRate + premium;
+
         let images = [];
         try {
             images = p.images ? JSON.parse(p.images) : [];
@@ -240,7 +249,8 @@ exports.getProduct = async (req, res) => {
         const responseUser = {
             ...p,
             images,
-            price: finalPrice
+            price: finalPrice,
+            price_per_gram: parseFloat(pricePerGram.toFixed(2))
         };
         delete responseUser.base_rate;
         delete responseUser.premium;

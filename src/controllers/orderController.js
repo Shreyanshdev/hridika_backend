@@ -8,6 +8,32 @@ const razorpay = new Razorpay({
     key_secret: config.razorpay.keySecret
 });
 
+// Price formula matching the frontend exactly
+const calculateUnitPrice = (item) => {
+    const weight = parseFloat(item.weight) || 0;
+    const baseRate = parseFloat(item.base_rate) || 0;
+    const premium = parseFloat(item.premium) || 0;
+    const makingChargePercent = parseFloat(item.making_charge) || 0;
+    const otherCharges = parseFloat(item.other_charges) || 0;
+    const gstPercent = 3;
+
+    const metalName = (item.metal_name || '').toLowerCase();
+    let pricePerGram = 0;
+    if (metalName === 'gold') {
+        pricePerGram = baseRate + premium / 10;
+    } else if (metalName === 'silver') {
+        pricePerGram = baseRate + premium / 1000;
+    } else {
+        pricePerGram = baseRate + premium;
+    }
+
+    const baseFinal = pricePerGram * weight;
+    const makingAmount = (baseFinal * makingChargePercent) / 100;
+    const totalBeforeGst = baseFinal + makingAmount;
+    const finalWithGst = (totalBeforeGst * (gstPercent + 100)) / 100;
+    return parseFloat((finalWithGst + otherCharges).toFixed(2));
+};
+
 exports.createOrder = async (req, res) => {
     const connection = await db.getConnection();
     try {
@@ -23,10 +49,10 @@ exports.createOrder = async (req, res) => {
 
         // Fetch cart items
         const query = `
-            SELECT c.product_id, c.quantity, p.weight, p.making_charge, m.base_rate, m.premium
+            SELECT c.product_id, c.quantity, p.weight, p.making_charge, p.other_charges, p.metal_name, m.base_rate, m.premium
             FROM cart c
             JOIN products p ON c.product_id = p.id
-            JOIN metal_rates m 
+            LEFT JOIN metal_rates m 
             ON LOWER(p.metal_name) = LOWER(m.metal_type)
             WHERE c.user_id = ?
         `;
@@ -40,7 +66,7 @@ exports.createOrder = async (req, res) => {
         // Calculate total
         let totalAmount = 0;
         for (const item of cartItems) {
-            const unitPrice = (parseFloat(item.weight) * (parseFloat(item.base_rate) + parseFloat(item.premium))) + parseFloat(item.making_charge);
+            const unitPrice = calculateUnitPrice(item);
             totalAmount += unitPrice * item.quantity;
         }
 
@@ -55,10 +81,15 @@ exports.createOrder = async (req, res) => {
             const orderId = orderResult.insertId;
 
             for (const item of cartItems) {
-                const unitPrice = (parseFloat(item.weight) * (parseFloat(item.base_rate) + parseFloat(item.premium))) + parseFloat(item.making_charge);
+                const unitPrice = calculateUnitPrice(item);
                 await connection.query(
                     "INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase) VALUES (?, ?, ?, ?)",
-                    [orderId, item.product_id, item.quantity, parseFloat(unitPrice.toFixed(2))]
+                    [orderId, item.product_id, item.quantity, unitPrice]
+                );
+                // Deduct inventory
+                await connection.query(
+                    "UPDATE products SET stock = GREATEST(stock - ?, 0) WHERE id = ?",
+                    [item.quantity, item.product_id]
                 );
             }
 
@@ -138,19 +169,24 @@ exports.verifyPayment = async (req, res) => {
 
         // Move cart to order items
         const [cartItems] = await connection.query(`
-            SELECT c.product_id, c.quantity, p.weight, p.making_charge, m.base_rate, m.premium
+            SELECT c.product_id, c.quantity, p.weight, p.making_charge, p.other_charges, p.metal_name, m.base_rate, m.premium
             FROM cart c
             JOIN products p ON c.product_id = p.id
-            JOIN metal_rates m 
+            LEFT JOIN metal_rates m 
             ON LOWER(p.metal_name) = LOWER(m.metal_type)
             WHERE c.user_id = ?
         `, [userId]);
 
         for (const item of cartItems) {
-            const unitPrice = (parseFloat(item.weight) * (parseFloat(item.base_rate) + parseFloat(item.premium))) + parseFloat(item.making_charge);
+            const unitPrice = calculateUnitPrice(item);
             await connection.query(
                 "INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase) VALUES (?, ?, ?, ?)",
-                [orderId, item.product_id, item.quantity, parseFloat(unitPrice.toFixed(2))]
+                [orderId, item.product_id, item.quantity, unitPrice]
+            );
+            // Deduct inventory
+            await connection.query(
+                "UPDATE products SET stock = GREATEST(stock - ?, 0) WHERE id = ?",
+                [item.quantity, item.product_id]
             );
         }
 
@@ -212,7 +248,7 @@ exports.getOrderDetails = async (req, res) => {
         const order = orders[0];
 
         const [items] = await db.query(`
-            SELECT p.name, oi.quantity, oi.price_at_purchase as price
+            SELECT p.name, p.images, oi.quantity, oi.price_at_purchase as price
             FROM order_items oi
             JOIN products p ON oi.product_id = p.id
             WHERE oi.order_id = ?

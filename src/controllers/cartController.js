@@ -46,11 +46,13 @@ exports.getCart = async (req, res) => {
                 p.images,
                 p.weight,
                 p.making_charge,
+                p.other_charges,
+                p.metal_name,
                 m.base_rate,
                 m.premium
             FROM cart c
             JOIN products p ON c.product_id = p.id
-            JOIN metal_rates m 
+            LEFT JOIN metal_rates m 
               ON LOWER(p.metal_name) = LOWER(m.metal_type)
             WHERE c.user_id = ?
         `;
@@ -58,18 +60,43 @@ exports.getCart = async (req, res) => {
         const [rows] = await db.query(query, [userId]);
 
         const result = rows.map(item => {
-            const unitPrice = (parseFloat(item.weight) * (parseFloat(item.base_rate) + parseFloat(item.premium))) + parseFloat(item.making_charge);
+            const weight = parseFloat(item.weight) || 0;
+            const baseRate = parseFloat(item.base_rate) || 0;
+            const premium = parseFloat(item.premium) || 0;
+            const makingChargePercent = parseFloat(item.making_charge) || 0;
+            const otherCharges = parseFloat(item.other_charges) || 0;
+            const gstPercent = 3;
 
-            // Python code specifically sends images as is?
-            // Line 986: "images": i["images"]
+            const metalName = (item.metal_name || '').toLowerCase();
+            let pricePerGram = 0;
+            if (metalName === 'gold') {
+                pricePerGram = baseRate + premium / 10;
+            } else if (metalName === 'silver') {
+                pricePerGram = baseRate + premium / 1000;
+            } else {
+                pricePerGram = baseRate + premium;
+            }
+
+            const baseFinal = pricePerGram * weight;
+            const makingAmount = (baseFinal * makingChargePercent) / 100;
+            const totalBeforeGst = baseFinal + makingAmount;
+            const finalWithGst = (totalBeforeGst * (gstPercent + 100)) / 100;
+            const unitPrice = parseFloat((finalWithGst + otherCharges).toFixed(2));
 
             return {
                 product_id: item.product_id,
                 name: item.name,
                 images: (() => { try { const parsed = JSON.parse(item.images); return Array.isArray(parsed) ? parsed : [item.images]; } catch { return item.images ? [item.images] : []; } })(),
                 quantity: item.cart_quantity,
-                price: parseFloat(unitPrice.toFixed(2)),
-                total_price: parseFloat((unitPrice * item.cart_quantity).toFixed(2))
+                price: unitPrice,
+                total_price: parseFloat((unitPrice * item.cart_quantity).toFixed(2)),
+                // Breakdown for transparency
+                metal_name: item.metal_name,
+                weight: weight,
+                price_per_gram: parseFloat(pricePerGram.toFixed(2)),
+                making_charge_percent: makingChargePercent,
+                gst_percent: gstPercent,
+                other_charges: otherCharges
             };
         });
 
